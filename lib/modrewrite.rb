@@ -21,10 +21,15 @@ class Rewriter
 
     if pn.exist?
       dir = path_parts.join('/') + '/'
-      rule = parse(File.read(pn))
       path = uri.path[dir.size()...uri.path.size()]      # per-directory
+
+      rule = parse(File.read(pn))
       subsitution = rule.rewrite(path)
       rewritten_url = dir + subsitution                  # add directory back
+
+      if rule.options and rule.options.include?('QSA') and uri.query
+        rewritten_url += '?' + uri.query
+      end
     end
 
     rewritten_url
@@ -33,20 +38,23 @@ class Rewriter
   private
   
   def parse(rule)
-    parts = rule.split(' ')
-    RewriteRule.new(parts[1], parts[2])
+    directive, pattern, subsitution, options = rule.split(' ')
+    RewriteRule.new(pattern, subsitution, options)
   end
 
 end
 
 class RewriteRule
   
-  def initialize(from, to)
-    @pattern = Regexp.new(from)
-    @to = to.gsub('$', '\\')
+  def initialize(pattern, subsitution, options)
+    @pattern = Regexp.new(pattern)
+    @subsitution = subsitution.gsub('$', '\\')
+    @options = options
   end
 
+  attr_reader :options
+
   def rewrite(path)
-    path.gsub(@pattern, @to)
+    path.gsub(@pattern, @subsitution)
   end
 end
