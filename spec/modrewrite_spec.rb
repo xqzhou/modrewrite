@@ -1,33 +1,45 @@
-# bowling_spec.rb
 require 'modrewrite'
 
 describe Rewriter, "#rewrite" do
 
   before(:each) do
-    @rewriter = Rewriter.new(File.dirname(__FILE__) + '/docs')
+    docroot = File.dirname(__FILE__) + '/docs'
+    @rewriter = Rewriter.new(docroot)
   end
 
   it "should rewrite url" do
-    url = @rewriter.rewrite('http://localhost/localpath/pathinfo')
+    url = @rewriter.rewrite('http://localhost/lang/python')
 
-    url.should == '/otherpath/pathinfo'
+    url.should == '/language/python'
   end
 
   it "should not rewrite when no rewrite pattern matches" do
-    url = @rewriter.rewrite('http://localhost/file')
+    url = @rewriter.rewrite('http://localhost/python')
 
-    url.should == '/file'
+    url.should == '/python'
   end
 
   it "should rewrite per directory" do
-    url = @rewriter.rewrite('http://localhost/dir1/localpath/pathinfo')
+    url = @rewriter.rewrite('http://localhost/ruby/awesome/monkey-patching')
 
-    url.should == '/dir1/dir1path/pathinfo'
+    url.should == '/ruby/fragile/monkey-patching'
   end
 
   it "should append query string" do
-    url = @rewriter.rewrite('http://localhost/localpath/pathinfo?q=a')
+    url = @rewriter.rewrite('http://localhost/lang/python?q=a')
 
-    url.should == '/otherpath/pathinfo?q=a'
+    url.should == '/language/python?q=a'
   end
+
+  it "should terminate matching on last rule" do
+    url = @rewriter.rewrite('http://localhost/lang/java')
+
+    url.should == '/blame/oracle'
+  end 
+
+  it "should ignore comments" do
+    url = @rewriter.rewrite('http://localhost/lang/ruby')
+
+    url.should == '/language/ruby'
+  end   
 end

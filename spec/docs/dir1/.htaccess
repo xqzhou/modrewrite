@@ -1,1 +1,0 @@
-RewriteRule ^localpath(.*) dir1path$1

@@ -1,1 +1,6 @@
-RewriteRule ^localpath(.*) otherpath$1 [QSA]
+<IfModule mod_rewrite.c>
+    #RewriteRule ^lang/ruby$ language/perl      [QSA,L]
+    RewriteRule  ^lang/java  blame/oracle       [QSA,L]
+    RewriteRule  ^lang(.*)   language$1         [QSA]
+</IfModule>
+

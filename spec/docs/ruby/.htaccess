@@ -1,0 +1,1 @@
+RewriteRule ^awesome(.*) fragile$1
