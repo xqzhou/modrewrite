@@ -9,23 +9,29 @@ class Rewriter
   def rewrite(url)
     uri = URI::parse url
     pn = nil
-    path_parts = uri.path.split('/')
+    dir = Pathname.new(uri.path)
+    root_dir_searched = false
 
-    begin
-      pn = Pathname.new("#{@docroot}#{path_parts.join('/')}/.htaccess")
+    while not root_dir_searched
+      pn = Pathname.new("#{@docroot}#{dir}") + Pathname.new(".htaccess")
       break if pn.exist?
-      path_parts = path_parts[0...-1]
-    end while not path_parts.empty?
+      if dir == Pathname.new('/')
+        root_dir_searched = true
+      else
+        dir = dir.parent
+      end
+    end
 
     rewritten_url = url
 
-    if pn.exist? and pn.file?
-      dir = path_parts.join('/') + '/'
-      path = uri.path[dir.size()...uri.path.size()]      # per-directory
 
-      rule = parse(File.read(pn))
+    if pn.exist? and pn.file?
+      rule = parse(pn)
+      path = uri.path.dup
+      path.slice!(dir.to_s)
+      path = path.gsub(/^\//, '')
       subsitution = rule.rewrite(path, uri.query)
-      rewritten_url = dir + subsitution                  # add directory back
+      rewritten_url = (dir + Pathname.new(subsitution)).to_s                 # add directory back
     end
 
     rewritten_url
@@ -33,25 +39,35 @@ class Rewriter
 
   private
   
-  def parse(rules)
-    chain = RewriteRuleChain.new()
+  def parse(pathname)
+    lines = File.read(pathname)
+    conditions = []
+    rules = []
 
-    for line in rules.split(/\n/)
+    for line in lines.split(/\n/)
       line.strip!
-      next if line.empty? or not line.include?('RewriteRule') or line.start_with?('#')
-      directive, pattern, subsitution, options = line.split(' ')
-      rule = RewriteRule.new(pattern, subsitution, options)
-      chain.add(rule)
+      next if line.empty? or line.start_with?('#')
+
+      if line.start_with?('RewriteCond')
+        directive, test_string, pattern = line.split(' ')
+        conditions << RewriteCond.new(test_string, pattern)
+      elsif line.start_with?('RewriteRule')
+        directive, pattern, subsitution, options = line.split(' ')
+        rules << RewriteRule.new(pattern, subsitution, options, conditions)
+        conditions = []
+      end
     end
 
-    chain
+    RewriteRuleChain.new(pathname.dirname, rules)
   end
 
 end
 
+
 class RewriteRuleChain
-  def initialize()
-    @rules = []
+  def initialize(dir, rules)
+    @dir = dir
+    @rules = rules
   end
 
   def add(rule)
@@ -59,49 +75,83 @@ class RewriteRuleChain
   end
 
   def rewrite(path, query)
-    invocation = ChainInvocation.new(@rules)
-    invocation.rewrite(path, query)
-  end
+      context = { 'dir' => @dir, 'query' => query }
+      rewritten = path
+      for rule in @rules
+        if not rule.matches?(rewritten, query, context)
+          next
+        end
+        rewritten = rule.rewrite(rewritten, context)
+        if rule.is_last?
+          break
+        end
+      end
 
-  class ChainInvocation
-    def initialize(rules)
-      @rules = rules
-      @current = 0
-      @rewritten = nil
-    end
-
-    def rewrite(path, query)
-      return path if @current >= @rules.size()
-      rule = @rules[@current]
-      @current += 1
-      rule.rewrite(path, query, self)
-    end
+      context['query'] ? "#{rewritten}?#{context['query']}" : rewritten
   end
 end
 
+
+class RewriteCond
+  def initialize(test_string, pattern)
+    @test_string = test_string
+    @pattern = pattern
+  end
+
+  def matches?(path, context)
+    request_file = context['dir'] + path
+    str = @test_string.gsub('%{REQUEST_FILENAME}', request_file.to_s)
+    # breakpoint
+    if @pattern == '!-f'
+      if not Pathname.new(str).file?
+        return true
+      end
+    end
+    if @pattern == '!-d'
+      if not Pathname.new(str).directory?
+        return true
+      end
+    end
+    return false
+  end
+end
+
+
 class RewriteRule
   
-  def initialize(pattern, subsitution, options)
+  def initialize(pattern, subsitution, options, conditions=[])
     @pattern = Regexp.new(pattern)
     @subsitution = subsitution.gsub('$', '\\')
     @options = options || ''
+    @conditions = conditions
   end
 
-  def rewrite(path, query, chain)
-    if not @pattern.match(path)
-      return chain.rewrite(path, query)
+  def rewrite(path, context)
+    rewritten = path.sub(@pattern, @subsitution)
+    uri = URI.parse(rewritten)
+
+    if uri.query
+      if context['query']
+        context['query'] = uri.query + '&' + context['query']
+      else
+        context['query'] = uri.query
+      end
     end
     
-    rewritten = path.gsub(@pattern, @subsitution)
-
-    if not @options.include?('L')
-      rewritten = chain.rewrite(rewritten, query)
-    end
-
-    if @options.include?('QSA') and query
-      rewritten += '?' + query
-    end
-    
-    rewritten
+    uri.path
   end
+
+  def matches?(path, query, context)
+    for cond in @conditions:
+      if not cond.matches?(path, context)
+        return false
+      end
+    end
+    @pattern.match(path) ? true : false
+  end
+
+  def is_last?
+    @options.include?('L')
+  end
+
 end
